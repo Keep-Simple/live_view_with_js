@@ -3,37 +3,85 @@ defmodule LiveViewWithJsWeb.PageLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    {:ok, assign(socket, query: "", results: %{})}
+    draggables = [
+      %{id: "drag-me-0", text: "Drag Me 0"},
+      %{id: "drag-me-1", text: "Drag Me 1"},
+      %{id: "drag-me-2", text: "Drag Me 2"},
+      %{id: "drag-me-3", text: "Drag Me 3"},
+      %{id: "drag-me-4", text: "Drag Me 4"},
+      %{id: "drag-me-5", text: "Drag Me 5"},
+      %{id: "drag-me-6", text: "Drag Me 6"},
+      %{id: "drag-me-7", text: "Drag Me 7"},
+      %{id: "drag-me-8", text: "Drag Me 8"}
+    ]
+
+    socket =
+      socket
+      |> assign(:pool, draggables)
+      |> assign(:drop_zone_a, [])
+      |> assign(:drop_zone_b, [])
+
+    {:ok, socket}
   end
 
   @impl true
-  def handle_event("suggest", %{"q" => query}, socket) do
-    {:noreply, assign(socket, results: search(query), query: query)}
-  end
+  def handle_event(
+        "dropped",
+        %{
+          "draggedId" => dragged_id,
+          "dropzoneId" => drop_zone_id,
+          "draggableIndex" => draggable_index
+        },
+        %{assigns: assigns} = socket
+      ) do
+    drop_zone_atom =
+      [:pool, :drop_zone_a, :drop_zone_b]
+      |> Enum.find(fn zone_atom -> to_string(zone_atom) == drop_zone_id end)
 
-  @impl true
-  def handle_event("search", %{"q" => query}, socket) do
-    case search(query) do
-      %{^query => vsn} ->
-        {:noreply, redirect(socket, external: "https://hexdocs.pm/#{query}/#{vsn}")}
-
-      _ ->
-        {:noreply,
-         socket
-         |> put_flash(:error, "No dependencies found matching \"#{query}\"")
-         |> assign(results: %{}, query: query)}
-    end
-  end
-
-  defp search(query) do
-    if not LiveViewWithJsWeb.Endpoint.config(:code_reloader) do
-      raise "action disabled when not in development"
+    if drop_zone_atom === nil do
+      throw("invalid drop_zone_id")
     end
 
-    for {app, desc, vsn} <- Application.started_applications(),
-        app = to_string(app),
-        String.starts_with?(app, query) and not List.starts_with?(desc, ~c"ERTS"),
-        into: %{},
-        do: {app, vsn}
+    dragged = find_dragged(assigns, dragged_id)
+
+    socket =
+      [:pool, :drop_zone_a, :drop_zone_b]
+      |> Enum.reduce(socket, fn zone_atom, %{assigns: assigns} = accumulator ->
+        updated_list =
+          assigns
+          |> update_list(zone_atom, dragged, drop_zone_atom, draggable_index)
+
+        accumulator
+        |> assign(zone_atom, updated_list)
+      end)
+
+    {:noreply, socket}
+  end
+
+  defp find_dragged(%{pool: pool, drop_zone_a: drop_zone_a, drop_zone_b: drop_zone_b}, dragged_id) do
+    (pool ++ drop_zone_a ++ drop_zone_b)
+    |> Enum.find(nil, fn draggable ->
+      draggable.id == dragged_id
+    end)
+  end
+
+  def update_list(assigns, list_atom, dragged, drop_zone_atom, draggable_index)
+      when list_atom == drop_zone_atom do
+    assigns[list_atom]
+    |> remove_dragged(dragged.id)
+    |> List.insert_at(draggable_index, dragged)
+  end
+
+  def update_list(assigns, list_atom, dragged, drop_zone_atom, draggable_index)
+      when list_atom != drop_zone_atom do
+    assigns[list_atom]
+    |> remove_dragged(dragged.id)
+  end
+
+  def remove_dragged(list, dragged_id) do
+    list
+    |> Enum.filter(fn draggable ->
+      draggable.id != dragged_id
+    end)
   end
 end
